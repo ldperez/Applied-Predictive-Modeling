@@ -1,0 +1,206 @@
+---
+title: "Final Project"
+date: "6/18/2022"
+
+---
+The data set consist of  319,795 samples with 18 variables. No missing values in data.
+```{r }
+df=read.csv('heart.csv')
+dim(df)
+sum(is.na(df))
+```
+
+```{r}
+colnames(df)
+```
+
+```{r}
+head(df)
+```
+```{r}
+str(df)
+```
+
+
+## factorize all character variables
+```{r}
+df$HeartDisease=as.factor(df$HeartDisease)
+df$Smoking=as.factor(df$Smoking)
+df$AlcoholDrinking=as.factor(df$AlcoholDrinking)
+df$Stroke=as.factor(df$Stroke)
+df$DiffWalking=as.factor(df$DiffWalking)
+df$sex=as.factor(df$Sex)
+df$AgeCategory=as.factor(df$AgeCategory)
+df$Race=as.factor(df$Race)
+df$diabetics=as.factor(df$Diabetic)
+df$PhysicalActivity=as.factor(df$PhysicalActivity)
+df$GenHealth=as.factor(df$GenHealth)
+df$Asthma=as.factor(df$Asthma)
+df$KidneyDisease=as.factor(df$KidneyDisease)
+df$SkinCancer=as.factor(df$SkinCancer)
+
+```
+
+## proportion of each variables
+```{r}
+table(df$HeartDisease)/sum(table(df$HeartDisease))
+```
+
+```{r}
+table(df$Smoking)/sum(table(df$Smoking))
+```
+
+```{r}
+table(df$AlcoholDrinking)/sum(table(df$AlcoholDrinking))
+```
+
+```{r}
+table(df$Stroke)/sum(table(df$Stroke))
+```
+
+```{r}
+table(df$DiffWalking)/sum(table(df$DiffWalking))
+```
+
+```{r}
+table(df$sex)/sum(table(df$Sex))
+```
+
+```{r}
+table(df$AgeCategory)/sum(table(df$AgeCategory))
+```
+
+```{r}
+table(df$Race)/sum(table(df$Race))
+```
+
+```{r}
+table(df$Diabetic)/sum(table(df$Diabetic))
+```
+
+```{r}
+table(df$PhysicalActivity)/sum(table(df$PhysicalActivity))
+```
+
+```{r}
+table(df$GenHealth)/sum(table(df$GenHealth))
+```
+
+```{r}
+table(df$Asthma)/sum(table(df$Asthma))
+```
+
+```{r}
+table(df$KidneyDisease)/sum(table(df$KidneyDisease))
+```
+
+```{r}
+table(df$SkinCancer)/sum(table(df$SkinCancer))
+
+```
+
+## Visualization
+
+```{r}
+library(ggplot2)
+ ggplot(df, aes(x ="", fill = HeartDisease)) +
+    geom_bar(width = 1)+ coord_polar(theta = "y") +ggtitle('Pie Chart of Having Heart Disease')
+    
+ 
+
+
+```
+
+```{r}
+hist(df$BMI , main='Histogram of BMI', xlab='Body Max Index' , ylab= 'Cout' , col='blue', border='red')
+
+```
+
+```{r}
+library(caret)
+library (package = "lattice")
+
+y_df=df$HeartDisease
+x_df=df[,-1]
+
+degeneratecols = nearZeroVar(x_df)
+degeneratecols
+colnames(x_df )[ degeneratecols ]
+```
+# Duplicated data
+
+```{r}
+duplicate_data=subset(df,duplicated(df))
+dim(duplicate_data)
+trainingRows = createDataPartition(duplicate_data$HeartDisease , p = 1, list = FALSE) 
+df1 = df[-trainingRows, ]
+```
+
+
+
+## https://stackoverflow.com/questions/48981550/what-is-the-best-way-of-under-sampling-in-r
+```{r}
+## rows that have "z" and "zz" entries
+yes_ind = which(df1$HeartDisease == "Yes")
+no_ind = which(df1$HeartDisease == "No")
+
+nsamp = min(length(yes_ind), length(no_ind))
+
+
+## select `nsamp` entries with "z" and `nsamp` entries with "zz"
+pick_yes = sample(yes_ind, nsamp)
+pick_no = sample(no_ind, nsamp)
+
+new_data = df1[c(pick_yes, pick_no), ]
+
+
+```
+
+
+```{r}
+
+y_df=new_data$HeartDisease
+x_df=new_data[,-1]
+set.seed(2)
+trainingRows = createDataPartition(y_df, p = .80, list = FALSE) 
+
+x_train = x_df [trainingRows, ]
+x_test =x_df[-trainingRows, ]
+y_train= y_df[ trainingRows]
+y_test= y_df[-trainingRows]
+
+
+ctrl = trainControl(method = "cv",
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE,
+                     savePredictions = TRUE)
+```
+
+
+## Logistic Regression 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+#fit the model
+set.seed(476)
+lrFit = train(x = x_train, 
+               y = y_train,
+               method = "glm",
+               metric = "ROC",
+              preProc = c("center", "scale"),
+               trControl = ctrl)
+#lrFit
+
+library(pROC)
+lrRoc = roc(response = lrFit$pred$obs,
+             predictor = lrFit$pred$Yes,
+             levels = rev(levels(lrFit$pred$obs)))
+lrRoc$auc
+
+#test the model
+testResults = data.frame(obs =y_test,
+                          LR = predict(lrFit, x_test))
+
+lrCM = confusionMatrix(lrFit, norm = "none")
+lrCM
+```
