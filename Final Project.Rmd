@@ -1,0 +1,494 @@
+---
+title: "Final Project"
+date: "6/18/2022"
+
+---
+## Missing values 
+
+The data set consist of  319,795 samples with 18 variables. No missing values in data.
+```{r }
+df=read.csv('heart.csv')
+dim(df)
+sum(is.na(df))
+```
+## columns name
+
+```{r}
+colnames(df)
+```
+
+## head of the data set
+
+```{r}
+head(df)
+```
+# Duplicated data
+
+There are 18078 duplicate rows in the data set
+
+```{r}
+duplicate_data=subset(df,duplicated(df))
+dim(duplicate_data)
+
+#remove duplicated rows
+df=unique(df)
+```
+
+
+## proportion of each variables
+
+```{r}
+table(df$HeartDisease)/sum(table(df$HeartDisease))
+```
+
+```{r}
+table(df$Smoking)/sum(table(df$Smoking))
+```
+
+```{r}
+table(df$AlcoholDrinking)/sum(table(df$AlcoholDrinking))
+```
+
+
+```{r}
+table(df$DiffWalking)/sum(table(df$DiffWalking))
+```
+
+```{r}
+table(df$Sex)/sum(table(df$Sex))
+```
+
+
+```{r}
+table(df$PhysicalActivity)/sum(table(df$PhysicalActivity))
+```
+
+```{r}
+table(df$GenHealth)/sum(table(df$GenHealth))
+```
+
+```{r}
+table(df$Asthma)/sum(table(df$Asthma))
+```
+
+```{r}
+table(df$SkinCancer)/sum(table(df$SkinCancer))
+
+```
+
+
+Since the proportion of the categories in the both "Stroke" and " Kidney Disease" are about 0.96 and 0.04, so we consider these two variables as the near zero variance variable and we remove those from data set. figure ? shows this proportion in both predictors.
+
+```{r}
+library(caret)
+library (package = "lattice")
+
+#zero variance predictors
+degeneratecols = nearZeroVar(df)
+degeneratecols
+colnames(df )[ degeneratecols ]
+
+#proportion tables of "Stroke" and "KidneyDisease"
+table(df$Stroke)/sum(table(df$Stroke))
+table(df$KidneyDisease)/sum(table(df$KidneyDisease))
+
+
+ggplot(df,aes(Stroke))+geom_bar(aes(fill=HeartDisease)) +
+                labs(title = "bar graph of Stroke (binned) with an overlay of Heart Disease")
+
+ggplot(df,aes(KidneyDisease))+geom_bar(aes(fill=HeartDisease)) +
+                labs(title = "bar graph of Kidney Disease (binned) with an overlay of Heart Disease")
+
+#remove variables
+df1 = subset(df, select = -c(Stroke,KidneyDisease) )
+```
+
+As we can see the proportion of different categories in the "Race" column is significantly unbalanced toward the 'white' category. To avoid having a bias in our data we decided to hold just "Hispanic", 'Black" and "White" races. Figure ? shows this unbalancing proportion. The total number of 24,198 samples will remove from the data.
+
+```{r}
+table(df$Race)/sum(table(df$Race))
+ggplot(df,aes(Race))+geom_bar(fill = "blue", colour = "red")+labs(title = "bar graph of the Race")
+
+
+#remove other categories from the column
+lowCategory=which(df$Race =="American Indian/Alaskan Native" | df$Race =="Asian"| df$Race=='Other' )
+df2=df1[-lowCategory, ]
+  
+```
+Here you can see the proportion of each categories on the 'Diabetic' column. Since borderline diabetes can be considered as no diabetes and due to its very small proportion, we combined this category with no diabetic category ."during pregnancy category" with the proportion of 0.008 was removed from the data.
+
+```{r}
+table(df$Diabetic)/sum(table(df$Diabetic))
+ggplot(df,aes(Diabetic))+geom_bar(fill = "blue", colour = "red")+labs(title = "bar graph of the Diabetic")
+
+#combine category of 'borderline' with 'No' category
+table(df2$Diabetic)
+borderline=which((df2$Diabetic)=='No, borderline diabetes')
+df2$Diabetic[borderline]='No'
+
+#remove the category of "yes (during pregnancy)"
+pregnancy=which(df2$Diabetic =="Yes (during pregnancy)" )
+df3=df2[-pregnancy, ]
+ggplot(df3,aes(Diabetic))+geom_bar(fill = "blue", colour = "red")+labs(title = "bar graph of the Diabetic")
+
+```
+## Check the 'SleepTime' column
+As we can see the minimum sleep time during 24-hours is 1 and maximum sleep time is 24 which don't seem correct. The histogram shows the distribution is slightly right skewed. With look at the box plot of the  "SleepTime" we can see there are some observation outside of upper and lower whiskers which have the potential to be outliers. We cut the range of the sleep time to have more reasonable range from 4 - 16.
+
+I applied z-score to check this issue. As per the empirical rule any absolute value of z-score above 3 is considered as an outlier. 
+
+
+```{r}
+summary(df3$SleepTime)
+hist(df3$SleepTime , main='Histogram of Sleep Time', xlab='Sleep time' , ylab= 'Count' , col='blue', border='red')
+boxplot(df3$SleepTime, main='Boxplot of Sleep Time', ylab= 'Hours')
+#z_scores= (df3$SleepTime - mean(df3$SleepTime))/sd(df3$SleepTime)
+#length(which(z_scores>=abs(3)))
+
+sleepOutlier = which(df3$SleepTime> 16 | df3$SleepTime <4)
+df4= df3[-sleepOutlier,]
+```
+
+# Label encoding
+
+There are two columns in the data set which have ordinal categories, 'AgeCategory' and ' GenHealth' columns. So, we convert them into factors with order, using label encoding. With Label Encoder, we can format the labelled data into a numeric format. That is, it converts the labelled data of the categorical groups into a numeric format.
+
+```{r}
+library (superml)
+df4$GenHealth= factor(df4$GenHealth, 
+                            levels = c("Poor", "Fair", "Good", 
+                                       "Very good", "Excellent"),
+                                 ordered = TRUE)
+
+label = LabelEncoder$new()
+df4$GenHealth=label$fit_transform(df4$GenHealth)
+table(df4$GenHealth)
+
+
+
+
+df4$AgeCategory = factor(df4$AgeCategory, ordered = TRUE)
+label = LabelEncoder$new()
+df4$AgeCategory=label$fit_transform(df4$AgeCategory)
+table(df4$AgeCategory)
+```
+
+## seperate the data to train and test
+
+```{r}
+
+set.seed(2)
+y_df=df4$HeartDisease
+trainingRows = createDataPartition(y_df, p = .90, list = FALSE) 
+
+
+
+#train and test data
+
+dataTrain=df4[trainingRows, ]
+dataTest=df4[-trainingRows, ]
+
+```
+
+
+## One hot encoding - Create dummy variables for all categorical variables
+
+```{r}
+
+# one hot coding for the train data
+dummyData=dummyVars(~. ,dataTrain[,-1], fullRank = T)
+trainDum = data.frame(predict(dummyData, newdata= dataTrain))
+head(trainDum)
+
+
+# one hot coding for the test data
+testDum = data.frame(predict(dummyData, newdata= dataTest[,-1],fullRank = T))
+head(testDum)
+
+# add the target variable
+trainDum$HeartDisease=as.factor(dataTrain$HeartDisease)
+testDum$HeartDisease=as.factor(dataTest$HeartDisease)
+
+
+```
+
+
+## Visualization
+
+```{r}
+hist(trainDum$BMI , main='Histogram of BMI', xlab='Body Max Index' , ylab= 'Cout' , col='blue', border='red')
+
+```
+
+As we can see the target variable is significantly unbalanced. To have a balanced data we will use under-sampling method.
+
+```{r}
+library(ggplot2)
+ ggplot(trainDum, aes(x ="", fill = HeartDisease)) +
+    geom_bar(width = 1)+ coord_polar(theta = "y") +ggtitle('Pie Chart of Having Heart Disease')
+    
+ 
+
+
+```
+
+#Udersampling
+
+## https://stackoverflow.com/questions/48981550/what-is-the-best-way-of-under-sampling-in-r
+```{r}
+
+## rows that have "Yes" and "No" entries
+yes_ind = which(trainDum$HeartDisease=='Yes')
+no_ind = which(trainDum$HeartDisease=='No')
+
+nsamp = min(length(yes_ind), length(no_ind))
+
+
+## select `nsamp` entries with "Yes" and `nsamp` entries with "No"
+pick_yes = sample(yes_ind, nsamp)
+pick_no = sample(no_ind, nsamp)
+
+train_under= trainDum[c(pick_yes, pick_no), ]
+
+
+```
+
+
+
+```{r}
+
+x_train=train_under[,-17]
+y_train=train_under$HeartDisease
+
+x_test=testDum[,-17]
+y_test=testDum$HeartDisease
+
+
+ctrl = trainControl(method = "cv",
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE,
+                     savePredictions = TRUE)
+```
+
+
+## Logistic Regression 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+#fit the model
+set.seed(23)
+lrFit = train(x = x_train, 
+               y = y_train,
+               method = "glm",
+               metric = "ROC",
+              preProc = c("center", "scale"),
+               trControl = ctrl)
+lrFit
+lrFit$finalModel
+
+library(pROC)
+lrRoc = roc(response = lrFit$pred$obs,
+             predictor = lrFit$pred$Yes,
+             levels = rev(levels(lrFit$pred$obs)))
+
+#ROC
+lrRoc$auc
+plot(lrRoc, legacy.axes = TRUE)
+
+#confusion matrix
+lrCM = confusionMatrix(lrFit, norm = "none")
+lrCM
+
+#variable Importance
+lrImp = varImp(lrFit, scale = FALSE)
+plot(lrImp)
+
+#test the model
+testResults = data.frame(obs =y_test,
+                          LR = predict(lrFit, x_test))
+
+
+```
+
+## Mixture Discriminant Analysis
+
+```{r}
+
+
+set.seed(23)
+
+mdaFit = train(x = x_train, 
+               y = y_train,
+               method = "mda",
+               tuneGrid = expand.grid(subclasses=1:2),
+               metric = "ROC",
+               trControl = ctrl)
+mdaFit
+mdaFit$finalModel
+
+
+
+## Plot the ROC curve for the hold-out set
+mdaRoc = roc(response = mdaFit$pred$obs,
+             predictor = mdaFit$pred$Yes,
+             levels = rev(levels(mdaFit$pred$obs)))
+
+
+mdaRoc$auc
+plot(mdaRoc, legacy.axes = TRUE)
+
+#confusion matrix
+mdaCM = confusionMatrix(mdaFit, norm = "none")
+mdaCM
+
+#variable importance
+mdaImp = varImp(mdaFit, scale = FALSE)
+plot(mdaImp)
+
+testResults$mda = predict (mdaFit,x_test)
+
+
+```
+
+## Neural Ntworks
+
+
+```{r}
+set.seed(23)
+
+nnetGrid = expand.grid(size=1:3, decay=c(0,0.1,0.2,0.3,0.4,0.5,1,2))
+
+nnetFit = train(x = x_train, 
+                y = y_train,
+                method = "nnet",
+                tuneGrid = nnetGrid,
+                metric = "ROC",
+                trace = FALSE, 
+                maxit = 2000, 
+                trControl = ctrl)
+nnetFit
+nnetFit$finalModel
+
+## Plot the ROC curve for the hold-out set
+nnetRoc = roc(response = nnetFit$pred$obs,
+              predictor = nnetFit$pred$Yes,
+                     levels = rev(levels(nnetFit$pred$obs)))
+
+nnetRoc$auc
+plot(nnetRoc, legacy.axes = TRUE)
+
+nnetCM = confusionMatrix(nnetFit, norm = "none")
+nnetCM
+
+#variable importance
+nnetImp = varImp(nnetFit, scale = FALSE)
+plot(nnetImp)
+
+
+testResults$nnet = predict(nnetFit, x_test)
+
+```
+
+
+## Support vector machine
+
+```{r}
+sigmaEst = kernlab::sigest(as.matrix(x_train))
+svmgrid = expand.grid(sigma = sigmaEst, C = 2^seq(-4,+4))
+
+
+
+set.seed(23)
+svmRFit = train(x = x_train, 
+                y =y_train,
+                method = "svmRadial",
+                tuneGrid = svmgrid,
+                metric = "ROC",
+                trControl = ctrl)
+svmRFit
+svmRFit$finalModel
+
+svmRCM <- confusionMatrix(svmRFit, norm = "none")
+svmRCM
+
+
+## Plot the ROC curve for the hold-out set
+svmRRoc <- roc(response = svmRFit$pred$obs,
+              predictor = svmRFit$pred$malignant,
+              levels = rev(levels(svmRFit$pred$obs)))
+
+plot(svmRRoc, legacy.axes = TRUE)
+svmRRoc$auc
+
+svmRImp <- varImp(svmRFit, scale = FALSE)
+plot(svmRImp)
+
+testResults$svmR <- predict(svmRFit, testpr[,1:10])
+```
+
+### Decision Trees
+
+```{r rpart}
+
+set.seed(23)
+rpartFit = train(x = x_train, 
+                y = y_train,
+                method = "rpart",
+                tuneLength = 30,
+                metric = "ROC",
+                trControl = ctrl)
+rpartFit
+rpartFit$finalModel
+
+rpartCM = confusionMatrix(rpartFit, norm = "none")
+rpartCM
+
+
+## Plot the ROC curve for the hold-out set
+rpartRoc = roc(response = rpartFit$pred$obs,
+              predictor = rpartFit$pred$Yes,
+              levels = rev(levels(rpartFit$pred$obs)))
+
+plot(rpartRoc, legacy.axes = TRUE)
+rpartRoc$auc
+
+rpartImp = varImp(rpartFit, scale = FALSE)
+plot(rpartImp)
+
+testResults$rpart = predict(rpartFit, x_test)
+
+```
+
+
+
+## KNN
+
+```{r}
+set.seed(476)
+knnFit = train(x = x_train, 
+                y = y_train,
+                method = "knn",
+                tuneLength = 20,
+                metric = "ROC",
+                trControl = ctrl)
+knnFit
+knnFit$finalModel
+
+knnCM = confusionMatrix(knnFit, norm = "none")
+knnCM
+
+
+## Plot the ROC curve for the hold-out set
+knnRoc = roc(response = knnFit$pred$obs,
+              predictor = knnFit$pred$Yes,
+              levels = rev(levels(knnFit$pred$obs)))
+
+plot(knnRoc, legacy.axes = TRUE)
+knnRoc$auc
+
+knnImp = varImp(knnFit, scale = FALSE)
+plot(knnImp)
+
+testResults$knn = predict(knnFit, x_test)
+```
+
