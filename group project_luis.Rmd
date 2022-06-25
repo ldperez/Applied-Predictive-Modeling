@@ -1,0 +1,600 @@
+---
+title: "project-g"
+author: "Fatemeh Khosravi"
+
+---
+
+```{r}
+library(ggplot2)
+library(lattice)
+library(caret)
+library(e1071)
+library(survival)
+library(corrplot)
+```
+
+
+
+
+```{r}
+heart <- read.csv('C:\\Users\\Luis Perez\\Desktop\\heart_2020_cleaned.csv', header = TRUE,)
+str(heart)
+```
+
+## Duplicates
+
+```{r}
+#Total duplicates
+sum(duplicated(heart))
+```
+
+```{r}
+#Observe the duplicates
+dup <- heart[duplicated(heart),]
+head(dup)
+```
+
+```{r}
+#check the balance in original data and in duplicates
+table(heart$HeartDisease)
+table(dup$HeartDisease)
+```
+
+**There are no IDs to identify whether these duplicates are real, but re the chances of duplicates are low. It's better to removed them.**
+
+```{r}
+#Remove duplicates
+heartRedDup<- unique(heart)
+dim(heartRedDup)
+```
+
+## 1. Define the scope of the model:
+
+### The model will be built to predict heart disease for race of White, Black and Hispanic
+
+```{r}
+unique(heartRedDup$Race)
+```
+
+```{r}
+#Subset the data that contain White, Black and Hispanic
+heartRedRace <- subset (heartRedDup, Race == "White" | Race== "Black" | 
+                          Race=="Hispanic")
+dim(heartRedRace)
+unique(heartRedRace$Race)
+table(heartRedRace$Race)
+```
+
+### The model will be built based on average SleepTime 4-16hr/24 hrs. Since people who sleep less or more than this range might have other serious health issues that might not been report and can affect the model
+
+```{r}
+#Subset the data to have sleep average from 4-16hrs
+heartRedRaceSleep <- subset(heartRedRace, heartRedRace$SleepTime >= 4 & heartRedRace$SleepTime <= 16 )
+dim(heartRedRaceSleep)
+```
+
+### Re-categorize diabetic categories in "yes and "no and drop "Yes (during pregnancy)". Since diabetic during pregnancy mostly temporary and only relevant for women
+
+```{r}
+table(heartRedRaceSleep$Diabetic)
+```
+
+```{r}
+#Drop rows with "Yes (during pregnancy)"
+heartRedRaceSleepDi <- subset(heartRedRaceSleep, heartRedRaceSleep$Diabetic!= "Yes (during pregnancy)")
+#Re-categorize diabetic categories in "yes" and "no" considering borderline are "no"
+heartRedRaceSleepDi$Diabetic <- ifelse(heartRedRaceSleepDi$Diabetic== "Yes", "Yes", "No")
+unique(heartRedRaceSleepDi$Diabetic)
+table(heartRedRaceSleepDi$Diabetic)
+```
+
+## Missing data
+
+```{r}
+colSums(is.na(heartRedRaceSleepDi))
+```
+
+**--> There is no missing data ** 
+
+## Outliers
+
+```{r}
+par(mfrow = c(2, 2))
+boxplot(heartRedRaceSleepDi$BMI, main="BMI")
+boxplot(heartRedRaceSleepDi$PhysicalHealth, main="Physical Health")
+boxplot(heartRedRaceSleepDi$MentalHealth, main="Mental Health")
+boxplot(heartRedRaceSleepDi$SleepTime, main="Sleep Time")
+```
+
+## Feature engineering
+
+### Change ordinal catergorical features to ordered factors using label-coding
+### Change dependent features normial factors using label-coding
+
+```{r}
+#check values of ordinal features
+unique(heartRedRaceSleepDi$AgeCategory)
+unique(heartRedRaceSleepDi$GenHealth)
+```
+
+```{r}
+#Convert Ordinal category variable into factors with order
+heartRedRaceSleepDi$AgeCategory <- factor(heartRedRaceSleepDi$AgeCategory, 
+                                        ordered = TRUE)
+heartRedRaceSleepDi$GenHealth   <- factor(heartRedRaceSleepDi$GenHealth, 
+                            levels = c("Poor", "Fair", "Good", 
+                                       "Very good", "Excellent"),
+                            ordered = TRUE)
+#Check the conversion order
+min(heartRedRaceSleepDi$AgeCategory)
+min(heartRedRaceSleepDi$GenHealth)
+#convert dependent variable to factor using label-encoding
+heartRedRaceSleepDi$HeartDisease <- factor(heartRedRaceSleepDi$HeartDisease)
+```
+
+
+**Sepearate predictors and dependent variable**
+
+```{r}
+heartRedRaceSleepDiX <- heartRedRaceSleepDi [,-1]
+heartRedRaceSleepDiY <- subset(heartRedRaceSleepDi, select=HeartDisease)
+dim(heartRedRaceSleepDiY)
+```
+
+###Convert factors into numeric
+
+```{r}
+#Get Column with factor type except response variable
+toConvert <- sapply(heartRedRaceSleepDiX, is.factor)
+#Display numeric values of factor variables
+heartRedRaceSleepDiX[, toConvert] <- sapply(heartRedRaceSleepDiX[, toConvert], unclass)
+str(heartRedRaceSleepDiX)
+```
+
+## Training/Test split
+
+**Since the some of the columns are very imbalance including the response variables. stratified split would be use to ensure similar distribution of classes in both training and test sets.**
+
+```{r plitting data}
+set.seed(23)
+# Create random stratified sample splits 
+trainingRows <- createDataPartition(heartRedRaceSleepDiY$HeartDisease, p = .9, list = FALSE)
+#subset the data into object for training using
+trainX <- heartRedRaceSleepDiX[trainingRows,]
+trainY <- heartRedRaceSleepDiY[trainingRows,]
+trainY <- as.data.frame(trainY)
+#subset the data into object for test using
+testX <- heartRedRaceSleepDiX[-trainingRows,]
+testY <- heartRedRaceSleepDiY[-trainingRows,]
+testY <- as.data.frame(testY)
+dim(trainX)
+dim(testX)
+```
+
+## Explore data in training set
+
+```{r}
+summary(trainX)
+```
+
+```{r, some histogram}
+# some histograms
+par(mfrow = c(1,3))
+hist(trainX$BMI)
+hist(trainX$PhysicalHealth)
+hist(trainX$SleepTime)
+```
+
+
+```{r} 
+#hist.data.frame(trainX)
+```
+
+### Check for highly correalted predictors
+
+```{r highly correlated predicotrs}
+#Extract numeric features
+trainXNum <-  sapply(trainX, is.numeric)
+#correlation of the numeric features
+correlations <- cor(trainX[, trainXNum])
+highCorr <- findCorrelation(correlations, cutoff = .75) 
+length(highCorr)
+```
+
+**--> No high correlation between numeric variables**
+
+```{r correaltion heatmap}
+#Create correlation matrix
+heartTrainCor = cor(trainX[, trainXNum])
+#plot cor matrix
+corrplot(heartTrainCor, method="color", addCoef.col= 1, number.cex = 0.4)
+```
+
+**-> correlations are in reasonable range**
+
+### Check for zero variance predictors
+
+```{r}
+degeneratecols <- nearZeroVar(trainX)
+degeneratecols
+colnames(trainX[degeneratecols])
+```
+
+```{r}
+#Exclude zero variance variable from training and test sets
+trainXFil <- trainX[, -degeneratecols]
+testXFil <- testX[, -degeneratecols]
+dim(trainXFil)
+```
+
+**--> Exclude near-zero variance feature: "Stroke" and "KidneyDisease"**
+
+### Check realtionship of independent variables and dependent variable
+
+```{r}
+#Compare Race with Heart disease overlayed
+par(mfrow = c(1,2))
+ggplot(trainXFil, aes(Race)) + geom_bar(aes(fill = trainY$trainY))
+ggplot(trainXFil, aes(Race)) + geom_bar(aes(fill = trainY$trainY), position = "fill")
+```
+
+
+```{r}
+#Compare SleepTime with Heart disease overlayed
+par(mfrow = c(1,2))
+ggplot(trainXFil, aes(SleepTime)) + geom_bar(aes(fill = trainY$trainY))
+ggplot(trainXFil, aes(SleepTime)) + geom_bar(aes(fill = trainY$trainY), position = "fill")
+```
+
+
+**-> sleep time seems to have some correlation with  heart disease: where sleep time less than 5 and higher than 8 or 9hrs
+
+
+```{r}
+#Compare Age with Heart disease overlayed
+par(mfrow = c(1,2))
+ggplot(trainXFil, aes(AgeCategory)) + geom_bar(aes(fill = trainY$trainY))
+ggplot(trainXFil, aes(AgeCategory)) + geom_bar(aes(fill = trainY$trainY), position = "fill")
+```
+**AgeCategory showed linear correlation with HeartDisease**
+
+```{r}
+#Compare Sleep with MentalHealth
+par(mfrow = c(1,3))
+hist(trainXFil$MentalHealth)
+hist(trainXFil$SleepTime)
+hist(trainXFil$PhysicalHealth)
+```
+
+Check
+trainXFil[trainX$MentalHealth >= 20,]
+trainXFil[trainX$PhysicalHealth >= 20,]
+
+```{r}
+# BMI distribution
+hist(trainX$BMI)
+```
+
+### One-hot encoding the nominal features
+
+```{r}
+#Convert nominal predictors into dummies
+dummy <- dummyVars(~., data = trainXFil, fullRank = T)
+trainXFilDum<- data.frame(predict(dummy, newdata= trainXFil))
+head(trainXFilDum)
+testXFilDum<- data.frame(predict(dummy, newdata= testXFil))
+dim(trainXFilDum)
+```
+
+## Combine train predictors and response variables
+## Underresampling the data since the response is very imbalance and the dataset is too large to do overresampling
+
+```{r}
+set.seed(23)
+#Combine train predictors and response variables
+trainCom <- cbind(trainXFilDum, trainY)
+colnames(trainCom)[17] <- "HeartDisease" #change response variable name back to HeartDisease
+testFinal <- cbind(testXFilDum, testY)
+colnames(testFinal)[17]<- "HeartDisease"
+#Downsampling the data
+trainFinal <- downSample(x =trainCom[,1:16], y= trainCom$HeartDisease, yname= "HeartDisease" )
+dim(trainFinal)
+```
+
+
+
+```{r}
+dim(trainFinal)
+dim(testFinal)
+head(trainFinal,2)
+```
+# Modeling
+
+
+```{r}
+
+x_train=trainFinal[,-17]
+y_train=trainFinal$HeartDisease
+
+x_test=testFinal[,-17]
+y_test=testFinal$HeartDisease
+
+
+ctrl = trainControl(method = "cv",
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE,
+                     savePredictions = TRUE)
+```
+
+## Logistic Regression 
+
+```{r }
+
+#fit the model
+set.seed(23)
+lrFit = train(x = x_train, 
+               y = y_train,
+               method = "glm",
+               metric = "ROC",
+              preProc = c("center", "scale"),
+               trControl = ctrl)
+lrFit
+lrFit$finalModel
+
+library(pROC)
+lrRoc = roc(response = lrFit$pred$obs,
+             predictor = lrFit$pred$Yes,
+             levels = rev(levels(lrFit$pred$obs)))
+
+#ROC
+lrRoc$auc
+plot(lrRoc, legacy.axes = TRUE)
+
+#confusion matrix
+lrCM = confusionMatrix(lrFit, norm = "none")
+lrCM
+
+#variable Importance
+lrImp = varImp(lrFit, scale = FALSE)
+plot(lrImp)
+
+#test the model
+testResults = data.frame(obs =y_test,
+                          LR = predict(lrFit, x_test))
+
+
+```
+
+## Mixture Discriminant Analysis
+
+```{r}
+
+
+set.seed(23)
+
+mdaFit = train(x = x_train, 
+               y = y_train,
+               method = "mda",
+               tuneGrid = expand.grid(subclasses=1:2),
+               metric = "ROC",
+               trControl = ctrl)
+mdaFit
+mdaFit$finalModel
+
+
+
+## Plot the ROC curve for the hold-out set
+mdaRoc = roc(response = mdaFit$pred$obs,
+             predictor = mdaFit$pred$Yes,
+             levels = rev(levels(mdaFit$pred$obs)))
+
+
+mdaRoc$auc
+plot(mdaRoc, legacy.axes = TRUE)
+
+#confusion matrix
+mdaCM = confusionMatrix(mdaFit, norm = "none")
+mdaCM
+
+#variable importance
+mdaImp = varImp(mdaFit, scale = FALSE)
+plot(mdaImp)
+
+testResults$mda = predict (mdaFit,x_test)
+
+
+```
+### Decision Trees
+
+```{r rpart}
+
+set.seed(23)
+rpartFit = train(x = x_train, 
+                y = y_train,
+                method = "rpart",
+                tuneLength = 30,
+                metric = "ROC",
+                trControl = ctrl)
+rpartFit
+rpartFit$finalModel
+
+rpartCM = confusionMatrix(rpartFit, norm = "none")
+rpartCM
+
+
+## Plot the ROC curve for the hold-out set
+rpartRoc = roc(response = rpartFit$pred$obs,
+              predictor = rpartFit$pred$Yes,
+              levels = rev(levels(rpartFit$pred$obs)))
+
+plot(rpartRoc, legacy.axes = TRUE)
+rpartRoc$auc
+
+rpartImp = varImp(rpartFit, scale = FALSE)
+plot(rpartImp)
+
+testResults$rpart = predict(rpartFit, x_test)
+
+```
+
+```{r}
+library(xgboost)
+library(readr)
+library(stringr)
+library(caret)
+library(car)
+```
+
+
+#Random Forest
+
+```{r}
+ library(randomForest)
+set.seed(23)
+
+ rfModel <- randomForest(x_test, y_test, importance = TRUE, ntrees = 1000)
+
+rfImp1 <- varImp(rfModel, scale = FALSE)
+
+rfImp1
+
+mtryValues <- seq(1,10,1)
+
+rfFit <- train(x = x_train, 
+                y = y_train,
+                method = "rf",
+                ntree = 5,
+                tuneGrid = data.frame(mtry = mtryValues),
+                metric = "ROC",
+                trControl = ctrl)
+
+rfFit
+rfFit$finalModel
+
+rfCM = confusionMatrix(rfFit, norm = "none")
+rfCM
+
+
+## Plot the ROC curve for the hold-out set
+rpartRoc = roc(response = rfFit$pred$obs,
+              predictor = rfFit$pred$Yes,
+              levels = rev(levels(rfFit$pred$obs)))
+
+plot(rpartRoc, legacy.axes = TRUE)
+rpartRoc$auc
+
+rpartImp = varImp(rpartFit, scale = FALSE)
+plot(rpartImp)
+
+testResults$rpart = predict(rpartFit, x_test)
+
+```
+#XGBoost
+```{r}
+set.seed(23)
+x_train_xgb = data.matrix(x_train) 
+x_test_xgb = data.matrix(x_test) 
+
+xgboost_train = xgb.DMatrix(data=x_train_xgb, label=y_train)
+xgboost_test = xgb.DMatrix(data=x_test_xgb, label=y_test)
+
+
+xgboostFit <- xgboost(data = xgboost_train,                   
+                 max.depth=3, nrounds=50)
+
+pred_test = predict(xgboostFit, xgboost_test)
+
+
+
+pred_test[(pred_test>3)] = 3
+pred_y = as.factor((levels(y_test))[round(pred_test)])
+testResults$xgb <- pred_y
+
+conf_mat = confusionMatrix(y_test, pred_y)
+print(conf_mat)
+
+library(pROC)
+
+```
+
+```{r}
+ library(kernlab)
+library(e1071)
+set.seed(23)
+
+
+
+sigmaRangeReduced <- sigest(as.matrix(x_train))
+svmRGridReduced <-expand.grid(.sigma = sigmaRangeReduced[1], .C = 2^(seq(-4, 4)))
+
+
+svmRModel <- train(x = x_train, 
+                y = y_train,
+                method = "svmRadial",
+                ntree = 1,
+                tuneGrid = svmRGridReduced,
+                metric = "ROC",
+                fit = FALSE,
+                trControl = ctrl)
+
+rfFit
+rfFit$finalModel
+
+rfCM = confusionMatrix(rfFit, norm = "none")
+rfCM
+
+
+## Plot the ROC curve for the hold-out set
+rpartRoc = roc(response = rfFit$pred$obs,
+              predictor = rfFit$pred$Yes,
+              levels = rev(levels(rfFit$pred$obs)))
+
+plot(rpartRoc, legacy.axes = TRUE)
+rpartRoc$auc
+
+rpartImp = varImp(rpartFit, scale = FALSE)
+plot(rpartImp)
+
+testResults$rpart = predict(rpartFit, x_test)
+```
+```{r}
+ library(randomForest)
+set.seed(23)
+
+ rfModel <- randomForest(x_test, y_test, importance = TRUE, ntrees = 1000)
+
+rfImp1 <- varImp(rfModel, scale = FALSE)
+
+rfImp1
+
+mtryValues <- seq(1,10,1)
+
+rfFit_s <- train(x = x_train, 
+                y = y_train,
+                method = "rf",
+                ntree = 5,
+                tuneGrid = data.frame(mtry = mtryValues),
+                metric = "Spec",
+                trControl = ctrl)
+
+rfFit_s
+rfFit_s$finalModel
+
+rfsCM = confusionMatrix(rfFit_s, norm = "none")
+rfsCM
+
+
+## Plot the ROC curve for the hold-out set
+rpartRoc_s = roc(response = rfFit_s$pred$obs,
+              predictor = rfFit_s$pred$Yes,
+              levels = rev(levels(rfFit_s$pred$obs)))
+
+plot(rpartRoc_s, legacy.axes = TRUE)
+rpartRoc_s$auc
+
+rpartImp = varImp(rfFit_s, scale = FALSE)
+plot(rpartImp)
+
+testResults$rpart = predict(rfFit_s, x_test)
+```
+
